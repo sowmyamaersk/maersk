@@ -1,0 +1,130 @@
+resources:
+  repositories:
+  - repository: self
+trigger:
+ batch: true
+ branches:
+    include:
+    - master
+
+variables:
+- name: BuildConfiguration
+  value: release
+- name: solution
+  value: '**\*.sln'
+
+stages:
+- stage: CodeBuild  
+  pool:
+   vmImage: 'windows-latest'
+  jobs:
+  - job: 
+    steps:     
+
+      - task: NuGetCommand@2
+        inputs:
+          command: 'restore'
+          restoreSolution: $(solution)
+          selectOrConfig: config
+          nugetConfigPath: nuget.config
+          includeNuGetOrg: false
+             
+      - task: DotNetCoreCLI@2
+        displayName: Build
+        inputs:
+         command: build
+         projects: $(solution)
+         arguments: '--configuration $(BuildConfiguration)' 
+
+      - task: DotNetCoreCLI@2
+        inputs:
+          command: 'test'
+          projects: '**/*Tests/*.csproj'
+          arguments: '--configuration $(BuildConfiguration)'
+          testRunTitle: 'Test'
+          workingDirectory: '$(System.DefaultWorkingDirectory)'      
+
+      - task: DotNetCoreCLI@2
+        displayName: Publish Code
+        inputs:
+          command: publish
+          publishWebProjects: false
+          projects: $(solution)
+          arguments: --configuration $(BuildConfiguration) --output $(Build.ArtifactStagingDirectory)\src
+          zipAfterPublish: false
+         
+      - task: PublishBuildArtifacts@1
+        displayName: Publish Build Artifacts
+        inputs:
+         pathtoPublish: $(Build.ArtifactStagingDirectory)
+         artifactName: Artifacts
+
+ 
+- stage:   DevRelease
+  dependsOn: CodeBuild
+  pool:
+   vmImage:  'windows-latest'
+  jobs:
+  - deployment: DeployToDevWebApp
+    displayName: Dev  
+    environment:
+      name: 'Dev'    
+    strategy:
+        runOnce:
+          deploy:
+            steps:   
+            - task: AzureWebApp@1
+              condition: and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/heads/master'))
+              inputs:
+                azureSubscription: 'MaerskServiceConnection'
+                appType: 'webApp'
+                appName:  'MaerskDevWebApp'
+                deployToSlotOrASE: true     
+                package: '$(System.DefaultWorkingDirectory)/**/*.zip'
+                
+- stage:   QaRelease
+  dependsOn: DevRelease
+  pool:
+   vmImage:  'windows-latest'
+  jobs:
+  - deployment: DeployToQaWebApp
+    displayName: Qa 
+    environment:
+      name: 'Qa'    
+    strategy:
+        runOnce:
+          deploy:
+            steps:   
+            - task: AzureWebApp@1
+              condition: and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/heads/master'))
+              inputs:
+                azureSubscription: 'MaerskServiceConnection'
+                appType: 'webApp'
+                appName:  'MaerskQaWebApp'
+                deployToSlotOrASE: true     
+                package: '$(System.DefaultWorkingDirectory)/**/*.zip'
+
+- stage:   ProdRelease
+  dependsOn: QaRelease
+  pool:
+   vmImage:  'windows-latest'
+  jobs:
+  - deployment: DeployToProdWebApp
+    displayName: Prod 
+    environment:
+      name: 'Prod'    
+    strategy:
+        runOnce:
+          deploy:
+            steps:   
+            - task: AzureWebApp@1
+              condition: and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/heads/master'))
+              inputs:
+                azureSubscription: 'MaerskServiceConnection'
+                appType: 'webApp'
+                appName:  'MaerskUatWebApp'
+                deployToSlotOrASE: true     
+                package: '$(System.DefaultWorkingDirectory)/**/*.zip'
+                
+                
+            

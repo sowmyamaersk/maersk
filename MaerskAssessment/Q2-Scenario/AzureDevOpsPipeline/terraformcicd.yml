@@ -1,0 +1,70 @@
+trigger:
+  branches:
+   include:
+   - master
+   exclude:
+   - feature/*
+
+stages:
+  - stage: validate
+    jobs:
+    - job: validate
+      continueOnError: false
+      steps:
+      - task: TerraformInstaller@0
+        displayName: 'install'
+        inputs:
+          terraformVersion: '0.14.9'
+      - task: TerraformTaskV2@2
+        displayName: init
+        inputs:
+          provider: 'azurerm'
+          command: 'init'
+          backendServiceArm: 'azure-spn'
+          backendAzureRmResourceGroupName: 'resgrpname'
+          backendAzureRmStorageAccountName: 'storageaccname'
+          backendAzureRmContainerName: 'containername'
+          backendAzureRmKey: 'terraform.tfstate'
+      - task: TerraformTaskV2@2
+        displayName: validate
+        inputs:
+          provider: 'azurerm'
+          command: 'validate'
+  - stage: deploy
+    jobs:
+    - deployment: deploy_terraform
+      continueOnError: false
+      environment: 'dev'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - checkout: self
+              - task: TerraformInstaller@0
+                displayName: 'install'
+                inputs:
+                  terraformVersion: '0.14.9'
+              - task: TerraformTaskV2@2
+                displayName: 'init'
+                inputs:
+                  provider: 'azurerm'
+                  command: 'init'
+                  backendServiceArm: 'azure-spn'
+                  backendAzureRmResourceGroupName: 'resgrpname'
+                  backendAzureRmStorageAccountName: 'storageaccname'
+                  backendAzureRmContainerName: 'containername'
+                  backendAzureRmKey: 'terraform.tfstate'
+                
+              - task: TerraformTaskV2@2
+                displayName: 'plan'
+                inputs:
+                  provider: 'azurerm'
+                  command: 'plan'
+                  environmentServiceNameAzureRM: 'azure-spn'
+              
+              - task: TerraformTaskV2@2
+                displayName: 'apply'
+                inputs:
+                  provider: 'azurerm'
+                  command: 'apply'
+                  environmentServiceNameAzureRM: 'azure-spn'
